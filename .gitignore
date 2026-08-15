@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+db.sqlite
+*.log
+prisma/dev.db
