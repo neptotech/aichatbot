@@ -16,6 +16,13 @@ type Conversation = {
   createdAt: string;
 };
 
+type ModelOption = {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+};
+
 export default function ChatPage({ user }: { user: { id?: string; name?: string | null; email?: string | null; image?: string | null } }) {
   const { data: session } = useSession();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -24,15 +31,31 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.0-flash');
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     loadConversations();
+    loadModels();
   }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  async function loadModels() {
+    try {
+      const res = await fetch('/api/models');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.models) && data.models.length > 0) {
+        setModels(data.models);
+        setSelectedModel(data.models[0].id);
+      }
+    } catch {
+      setModels([]);
+    }
+  }
 
   async function loadConversations() {
     const res = await fetch('/api/chat/history');
@@ -76,7 +99,8 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: trimmed,
-          conversationId: selectedConversationId
+          conversationId: selectedConversationId,
+          modelName: selectedModel
         })
       });
 
@@ -191,6 +215,24 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
 
         <div className="border-t border-slate-800 bg-slate-900/70 p-4 lg:px-8">
           <div className="mx-auto flex max-w-5xl items-end gap-3 rounded-2xl border border-slate-700 bg-slate-950 p-3">
+            <div className="flex items-center gap-2 self-end pb-3">
+              <label className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Model</label>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="rounded-xl border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-200 outline-none"
+                disabled={models.length === 0}
+              >
+                {models.length === 0 ? (
+                  <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                ) : (
+                  models.map((model) => (
+                    <option key={model.id} value={model.id}>{model.displayName}</option>
+                  ))
+                )}
+              </select>
+            </div>
+
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}

@@ -25,11 +25,21 @@ export async function GET() {
     }
 
     const data = await response.json();
-    const models = (data.models || []).map((model: any) => ({
-      name: model.name,
-      displayName: model.displayName,
-      description: model.description
-    }));
+    const models = (data.models || [])
+      .filter((model: any) =>
+        Array.isArray(model.supportedGenerationMethods) &&
+        model.supportedGenerationMethods.includes('generateContent')
+      )
+      .map((model: any) => {
+        const name = String(model.name || '').replace(/^models\//, '');
+        return {
+          id: name,
+          name,
+          displayName: model.displayName || name,
+          description: model.description || ''
+        };
+      })
+      .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     return Response.json({ success: true, models });
   } catch (error) {

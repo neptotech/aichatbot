@@ -15,8 +15,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { message, conversationId } = await req.json();
+    const { message, conversationId, modelName } = await req.json();
     const trimmed = String(message || '').trim();
+    const selectedModel = String(modelName || 'gemini-2.0-flash').replace(/^models\//, '');
 
     if (!trimmed) {
       return Response.json({ success: false, error: 'Message cannot be empty.' }, { status: 400 });
@@ -72,25 +73,38 @@ export async function POST(req: NextRequest) {
       take: 12
     });
 
-    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_GENERATIVE_AI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: recentMessages.map((message) => ({
-          role: message.role === 'user' ? 'user' : 'model',
-          parts: [{ text: message.content }]
-        })),
-        generationConfig: { temperature: 0.7 }
-      })
-    });
+    const aiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selectedModel)}:generateContent?key=${process.env.GOOGLE_GENERATIVE_AI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: recentMessages.map((message) => ({
+            role: message.role === 'user' ? 'user' : 'model',
+            parts: [{ text: message.content }]
+          })),
+          generationConfig: { temperature: 0.7 }
+        })
+      }
+    );
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       const errorPayload = JSON.parse(errorText || '{}');
-      if (isResourceShortage(errorPayload)) {
+      const reason = errorPayload?.error?.message || '';
+
+      if (isResourceShortage(errorPayload) || isResourceShortage({ message: reason })) {
         return Response.json({ success: false, error: RESOURCE_SHORTAGE_MESSAGE }, { status: 503 });
       }
-      return Response.json({ success: false, error: errorPayload?.error?.message || 'The AI service is temporarily unavailable.' }, { status: 502 });
+
+      if (reason.toLowerCase().includes('not found') || reason.toLowerCase().includes('not supported')) {
+        return Response.json({
+          success: false,
+          error: 'This model is currently unavailable. Please choose another model from the list and try again.'
+        }, { status: 400 });
+      }
+
+      return Response.json({ success: false, error: reason || 'The AI service is temporarily unavailable.' }, { status: 502 });
     }
 
     const aiData = await aiResponse.json();
