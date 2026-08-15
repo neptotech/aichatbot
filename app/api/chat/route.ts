@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const sentToday = await prisma.message.count({
+    const successfulUserMessagesToday = await prisma.message.count({
       where: {
         userId: session.user.id,
         role: 'user',
@@ -36,19 +36,18 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    if (sentToday >= DAILY_MESSAGE_LIMIT) {
+    if (successfulUserMessagesToday >= DAILY_MESSAGE_LIMIT) {
       return Response.json({
         success: false,
         error: `Your daily message limit is reached. You have used all ${DAILY_MESSAGE_LIMIT} messages for today.`
       }, { status: 429 });
     }
 
-    let conversation = null;
-    if (conversationId) {
-      conversation = await prisma.conversation.findFirst({
-        where: { id: conversationId, userId: session.user.id }
-      });
-    }
+    let conversation = conversationId
+      ? await prisma.conversation.findFirst({
+          where: { id: conversationId, userId: session.user.id }
+        })
+      : null;
 
     const previousMessages = conversation
       ? await prisma.message.findMany({
@@ -58,26 +57,34 @@ export async function POST(req: NextRequest) {
         })
       : [];
 
-    const aiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selectedModel)}:generateContent?key=${process.env.GOOGLE_GENERATIVE_AI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            ...previousMessages.map((message) => ({
-              role: message.role === 'user' ? 'user' : 'model',
-              parts: [{ text: message.content }]
-            })),
-            {
-              role: 'user',
-              parts: [{ text: trimmed }]
-            }
-          ],
-          generationConfig: { temperature: 0.7 }
-        })
-      }
-    );
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          title: trimmed.slice(0, 40) || 'New chat',
+          userId: session.user.id
+        }
+      });
+    }
+
+    const streamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selectedModel)}:streamGenerateContent?key=${process.env.GOOGLE_GENERATIVE_AI_API_KEY}`;
+
+    const aiResponse = await fetch(streamUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          ...previousMessages.map((message) => ({
+            role: message.role === 'user' ? 'user' : 'model',
+            parts: [{ text: message.content }]
+          })),
+          {
+            role: 'user',
+            parts: [{ text: trimmed }]
+          }
+        ],
+        generationConfig: { temperature: 0.7 }
+      })
+    });
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
@@ -98,46 +105,100 @@ export async function POST(req: NextRequest) {
       return Response.json({ success: false, error: reason || 'The AI service is temporarily unavailable.' }, { status: 502 });
     }
 
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          title: trimmed.slice(0, 40) || 'New chat',
-          userId: session.user.id
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          const reader = aiResponse.body?.getReader();
+          if (!reader) {
+            controller.enqueue(encoder.encode(JSON.stringify({ event: 'error', data: 'No stream available.' }) + '\n'));
+            controller.close();
+            return;
+          }
+
+          const decoder = new TextDecoder();
+          let fullText = '';
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine || trimmedLine === '[DONE]') continue;
+
+              if (trimmedLine.startsWith('data:')) {
+                const payload = trimmedLine.slice(5).trim();
+                if (!payload || payload === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(payload);
+                  const content = parsed?.candidates?.[0]?.content?.parts
+                    ?.map((part: any) => part.text || '')
+                    .join('') || '';
+
+                  if (content) {
+                    fullText += content;
+                    controller.enqueue(encoder.encode(JSON.stringify({ event: 'text', data: content }) + '\n'));
+                  }
+                } catch {
+                  // ignore malformed chunk fragments
+                }
+              }
+            }
+          }
+
+          const userMessage = await prisma.message.create({
+            data: {
+              role: 'user',
+              content: trimmed,
+              conversationId: conversation.id,
+              userId: session.user.id
+            }
+          });
+
+          const assistantMessage = await prisma.message.create({
+            data: {
+              role: 'assistant',
+              content: fullText || 'I could not generate a reply right now.',
+              conversationId: conversation.id,
+              userId: session.user.id
+            }
+          });
+
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { title: conversation.title || 'New chat' }
+          });
+
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                event: 'meta',
+                data: {
+                  conversationId: conversation.id,
+                  userMessageId: userMessage.id,
+                  assistantMessageId: assistantMessage.id
+                }
+              }) + '\n'
+            )
+          );
+          controller.close();
+        } catch (error: any) {
+          controller.enqueue(encoder.encode(JSON.stringify({ event: 'error', data: String(error?.message || 'Streaming failed.') }) + '\n'));
+          controller.close();
         }
-      });
-    }
-
-    const userMessage = await prisma.message.create({
-      data: {
-        role: 'user',
-        content: trimmed,
-        conversationId: conversation.id,
-        userId: session.user.id
       }
     });
 
-    const aiData = await aiResponse.json();
-    const text = aiData?.candidates?.[0]?.content?.parts?.map((part: any) => part.text).join('') || 'I could not generate a reply right now.';
-
-    const assistantMessage = await prisma.message.create({
-      data: {
-        role: 'assistant',
-        content: text,
-        conversationId: conversation.id,
-        userId: session.user.id
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache'
       }
-    });
-
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { title: conversation.title || 'New chat' }
-    });
-
-    return Response.json({
-      success: true,
-      message: { id: assistantMessage.id, content: assistantMessage.content },
-      conversationId: conversation.id,
-      userMessageId: userMessage.id
     });
   } catch (error: any) {
     const message = String(error?.message || '');

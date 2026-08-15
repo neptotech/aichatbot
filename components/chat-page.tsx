@@ -42,6 +42,10 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
   const [models] = useState<ModelOption[]>(
     PERMANENT_MODELS.map((model) => ({
       id: model,
@@ -51,11 +55,20 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
     }))
   );
   const [selectedModel, setSelectedModel] = useState<string>(PERMANENT_MODELS[0]);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const filteredConversations = conversations.filter((conversation) =>
+    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   useEffect(() => {
     loadConversations();
   }, []);
+
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [searchOpen]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -66,15 +79,12 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
     const data = await res.json();
     if (data.success) {
       setConversations(data.conversations || []);
-      if (data.conversations?.[0]) {
-        setSelectedConversationId(data.conversations[0].id);
-        loadMessages(data.conversations[0].id);
-      }
     }
   }
 
   async function loadMessages(conversationId: string) {
     setSelectedConversationId(conversationId);
+    setError(null);
     const res = await fetch(`/api/chat/history?conversationId=${conversationId}`);
     const data = await res.json();
     if (data.success) {
@@ -85,6 +95,8 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
   async function startNewConversation() {
     setSelectedConversationId(null);
     setMessages([]);
+    setError(null);
+    setSearchQuery('');
   }
 
   async function handleSend() {
@@ -93,6 +105,12 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
 
     setInput('');
     setError(null);
+
+    const userMessageId = `${Date.now()}-user`;
+    setMessages((current) => [...current, { id: userMessageId, role: 'user', content: trimmed }]);
+
+    const assistantId = `${Date.now()}-assistant`;
+    setMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
     setIsLoading(true);
 
     try {
@@ -106,17 +124,82 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
         })
       });
 
-      const data = await res.json();
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Something went wrong.' }));
+        setError(errorData.error || 'Something went wrong.');
+        setMessages((current) => current.filter((message) => message.id !== assistantId));
+        return;
+      }
 
-      if (!res.ok || !data.success) {
-        setError(data.error || 'Something went wrong.');
-      } else {
-        setMessages((current) => [...current, { id: data.message.id, role: 'assistant', content: data.message.content }]);
-        setSelectedConversationId(data.conversationId);
-        loadConversations();
+      const reader = res.body?.getReader();
+      if (!reader) {
+        const data = await res.json().catch(() => null);
+        if (data?.success) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId ? { ...message, content: data.message.content } : message
+            )
+          );
+          setSelectedConversationId(data.conversationId ?? selectedConversationId);
+          await loadConversations();
+        } else {
+          setError(data?.error || 'Something went wrong.');
+          setMessages((current) => current.filter((message) => message.id !== assistantId));
+        }
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let streamedText = '';
+      let done = false;
+
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        done = streamDone;
+        if (!value) continue;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+
+          try {
+            const payload = JSON.parse(line);
+            if (payload.event === 'meta' && payload.data?.conversationId) {
+              setSelectedConversationId(payload.data.conversationId);
+              await loadConversations();
+            }
+            if (payload.event === 'text' && typeof payload.data === 'string') {
+              streamedText += payload.data;
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId ? { ...message, content: (message.content || '') + payload.data } : message
+                )
+              );
+            }
+            if (payload.event === 'error') {
+              setError(payload.data || 'Something went wrong.');
+              setMessages((current) => current.filter((message) => message.id !== assistantId));
+              done = true;
+            }
+          } catch {
+            streamedText += line;
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId ? { ...message, content: (message.content || '') + line } : message
+              )
+            );
+          }
+        }
+      }
+
+      if (!error) {
+        setSelectedConversationId((current) => current ?? selectedConversationId);
       }
     } catch (err) {
       setError('We are facing short-term resource shortages. Please try again in a few moments.');
+      setMessages((current) => current.filter((message) => message.id !== assistantId));
     } finally {
       setIsLoading(false);
     }
@@ -127,48 +210,67 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
       <aside className="hidden w-72 border-r border-[#e8dfd6] bg-[#f1efe9] p-4 lg:flex lg:flex-col">
         <div className="mb-5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-stone-500">OpenAI</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-stone-500">ChatGPT</div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm text-stone-600 shadow-sm ring-1 ring-stone-200">⌕</button>
-            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm text-stone-600 shadow-sm ring-1 ring-stone-200">＋</button>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchOpen((prev) => !prev);
+                if (!searchOpen) {
+                  setTimeout(() => searchInputRef.current?.focus(), 0);
+                }
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm text-stone-600 shadow-sm ring-1 ring-stone-200"
+              aria-label="Search chats"
+            >
+              ⌕
+            </button>
+            <button
+              type="button"
+              onClick={startNewConversation}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm text-stone-600 shadow-sm ring-1 ring-stone-200"
+              aria-label="New chat"
+            >
+              ＋
+            </button>
           </div>
         </div>
 
-        <button
-          onClick={startNewConversation}
-          className="flex w-full items-center gap-2 rounded-2xl bg-[#e7e0d8] px-3 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-[#ddd3c8]"
-        >
-          <span className="flex h-5 w-5 items-center justify-center rounded-md border border-stone-400 text-xs">✎</span>
-          New chat
-        </button>
+        {searchOpen && (
+          <div className="mb-4">
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chats"
+              className="w-full rounded-xl border border-[#ddd1c5] bg-white px-3 py-2 text-sm text-stone-700 outline-none placeholder:text-stone-400"
+            />
+          </div>
+        )}
 
-        <nav className="mt-5 space-y-2 text-sm text-stone-600">
-          {[
-            'Images',
-            'Library',
-            'Gains',
-            'Pacts',
-            'More'
-          ].map((item) => (
-            <button
-              key={item}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-white/60"
-            >
-              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-stone-300 text-[10px] text-stone-500">
-                {item[0]}
-              </span>
-              {item}
-            </button>
-          ))}
-        </nav>
-
-        <div className="mt-8">
+        <div className="mt-2 flex-1 overflow-hidden">
           <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-500">Recents</div>
-          <div className="space-y-2 text-sm text-stone-600">
-            {['Discord server member limit', 'Windows AI Components Update', 'Phi Silica Use Cases', 'AI Image Search Setup', 'Gmail Email Summary'].map((item) => (
-              <div key={item} className="truncate px-2 py-1.5 text-stone-600">{item}</div>
-            ))}
+          <div className="space-y-2 overflow-y-auto pr-1">
+            {filteredConversations.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-stone-300 bg-white/40 px-3 py-3 text-sm text-stone-500">
+                No chats found
+              </div>
+            ) : (
+              filteredConversations.map((conversation) => (
+                <button
+                  key={conversation.id}
+                  onClick={() => loadMessages(conversation.id)}
+                  className={`w-full rounded-xl px-2 py-2 text-left text-sm transition ${
+                    selectedConversationId === conversation.id
+                      ? 'bg-[#e5ddd3] text-stone-800'
+                      : 'text-stone-600 hover:bg-white/60'
+                  }`}
+                >
+                  <div className="truncate">{conversation.title}</div>
+                </button>
+              ))
+            )}
           </div>
         </div>
 
@@ -201,21 +303,12 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
             </button>
             <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-stone-500">ChatGPT</div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-stone-700 shadow-sm ring-1 ring-stone-200">
-              ⎘
-            </button>
-            <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-stone-700 shadow-sm ring-1 ring-stone-200">
-              ◌
-            </button>
-          </div>
         </header>
 
         <div className="flex flex-1 flex-col px-4 pb-8 pt-2">
           <div className="flex flex-1 items-center justify-center">
             <div className="w-full max-w-4xl">
-              {messages.length === 0 ? (
+              {messages.length === 0 || selectedConversationId === null ? (
                 <div className="flex min-h-[280px] items-center justify-center">
                   <div className="text-center text-[28px] font-medium tracking-[-0.04em] text-stone-700">
                     What’s on your mind today?
@@ -253,7 +346,12 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
           <div className="w-full pb-2">
             <div className="mx-auto w-full max-w-4xl rounded-[28px] border border-[#d9d1c7] bg-[#e8e1d8] p-3 shadow-[0_10px_30px_rgba(109,97,87,0.08)]">
               <div className="flex items-end gap-3">
-                <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-lg text-stone-700 shadow-sm ring-1 ring-stone-200">
+                <button
+                  type="button"
+                  onClick={startNewConversation}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-lg text-stone-700 shadow-sm ring-1 ring-stone-200"
+                  aria-label="New chat"
+                >
                   +
                 </button>
 
@@ -282,6 +380,7 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
                     ))}
                   </select>
                   <button
+                    type="button"
                     disabled={isLoading || !input.trim()}
                     onClick={handleSend}
                     className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2d2a29] text-lg text-white transition hover:bg-[#1d1b1a] disabled:cursor-not-allowed disabled:bg-stone-300"
