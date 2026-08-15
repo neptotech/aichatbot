@@ -8,6 +8,21 @@ function isResourceShortage(error: any) {
   return message.includes('429') || message.includes('resource') || message.includes('quota') || message.includes('overloaded') || message.includes('temporarily unavailable');
 }
 
+function extractTextFromPayload(payload: any): string {
+  if (!payload) return '';
+
+  const candidates = Array.isArray(payload)
+    ? payload.flatMap((entry: any) => Array.isArray(entry?.candidates) ? entry.candidates : entry?.candidates ? [entry.candidates] : [])
+    : Array.isArray(payload?.candidates)
+      ? payload.candidates
+      : [payload];
+
+  return candidates
+    .flatMap((candidate: any) => Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [])
+    .map((part: any) => part?.text || '')
+    .join('');
+}
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession();
   if (!session?.user?.id) {
@@ -137,9 +152,7 @@ export async function POST(req: NextRequest) {
 
               try {
                 const parsed = JSON.parse(payload);
-                const content = parsed?.candidates?.[0]?.content?.parts
-                  ?.map((part: any) => part.text || '')
-                  .join('') || '';
+                const content = extractTextFromPayload(parsed);
 
                 if (content) {
                   fullText += content;
@@ -154,9 +167,7 @@ export async function POST(req: NextRequest) {
           if (buffer.trim()) {
             try {
               const parsed = JSON.parse(buffer.trim());
-              const content = parsed?.candidates?.[0]?.content?.parts
-                ?.map((part: any) => part.text || '')
-                .join('') || '';
+              const content = extractTextFromPayload(parsed);
 
               if (content) {
                 fullText += content;
