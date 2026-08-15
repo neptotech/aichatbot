@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   try {
     const { message, conversationId, modelName } = await req.json();
     const trimmed = String(message || '').trim();
-    const selectedModel = String(modelName || 'gemini-2.0-flash').replace(/^models\//, '');
+    const selectedModel = String(modelName || 'gemini-3.5-flash-lite').replace(/^models\//, '');
 
     if (!trimmed) {
       return Response.json({ success: false, error: 'Message cannot be empty.' }, { status: 400 });
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     const sentToday = await prisma.message.count({
       where: {
         userId: session.user.id,
+        role: 'user',
         createdAt: {
           gte: today
         }
@@ -49,29 +50,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          title: trimmed.slice(0, 40) || 'New chat',
-          userId: session.user.id
-        }
-      });
-    }
-
-    const userMessage = await prisma.message.create({
-      data: {
-        role: 'user',
-        content: trimmed,
-        conversationId: conversation.id,
-        userId: session.user.id
-      }
-    });
-
-    const recentMessages = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
-      orderBy: { createdAt: 'asc' },
-      take: 12
-    });
+    const previousMessages = conversation
+      ? await prisma.message.findMany({
+          where: { conversationId: conversation.id },
+          orderBy: { createdAt: 'asc' },
+          take: 12
+        })
+      : [];
 
     const aiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selectedModel)}:generateContent?key=${process.env.GOOGLE_GENERATIVE_AI_API_KEY}`,
@@ -79,10 +64,16 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: recentMessages.map((message) => ({
-            role: message.role === 'user' ? 'user' : 'model',
-            parts: [{ text: message.content }]
-          })),
+          contents: [
+            ...previousMessages.map((message) => ({
+              role: message.role === 'user' ? 'user' : 'model',
+              parts: [{ text: message.content }]
+            })),
+            {
+              role: 'user',
+              parts: [{ text: trimmed }]
+            }
+          ],
           generationConfig: { temperature: 0.7 }
         })
       }
@@ -106,6 +97,24 @@ export async function POST(req: NextRequest) {
 
       return Response.json({ success: false, error: reason || 'The AI service is temporarily unavailable.' }, { status: 502 });
     }
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          title: trimmed.slice(0, 40) || 'New chat',
+          userId: session.user.id
+        }
+      });
+    }
+
+    const userMessage = await prisma.message.create({
+      data: {
+        role: 'user',
+        content: trimmed,
+        conversationId: conversation.id,
+        userId: session.user.id
+      }
+    });
 
     const aiData = await aiResponse.json();
     const text = aiData?.candidates?.[0]?.content?.parts?.map((part: any) => part.text).join('') || 'I could not generate a reply right now.';

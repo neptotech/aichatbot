@@ -3,6 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
 
+const PERMANENT_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-pro-preview',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview',
+  'gemma-4-26b-a4b-it',
+  'gemma-4-31b-it'
+];
+
 type Message = {
   id: string;
   role: 'user' | 'assistant';
@@ -31,31 +42,24 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.0-flash');
+  const [models] = useState<ModelOption[]>(
+    PERMANENT_MODELS.map((model) => ({
+      id: model,
+      name: model,
+      displayName: model,
+      description: 'Permanent model option'
+    }))
+  );
+  const [selectedModel, setSelectedModel] = useState<string>(PERMANENT_MODELS[0]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     loadConversations();
-    loadModels();
   }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
-
-  async function loadModels() {
-    try {
-      const res = await fetch('/api/models');
-      const data = await res.json();
-      if (data.success && Array.isArray(data.models) && data.models.length > 0) {
-        setModels(data.models);
-        setSelectedModel(data.models[0].id);
-      }
-    } catch {
-      setModels([]);
-    }
-  }
 
   async function loadConversations() {
     const res = await fetch('/api/chat/history');
@@ -87,8 +91,6 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
 
-    const userMessage: Message = { id: `${Date.now()}-user`, role: 'user', content: trimmed };
-    setMessages((current) => [...current, userMessage]);
     setInput('');
     setError(null);
     setIsLoading(true);
@@ -108,7 +110,6 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
 
       if (!res.ok || !data.success) {
         setError(data.error || 'Something went wrong.');
-        setMessages((current) => current.filter((message) => message.id !== userMessage.id));
       } else {
         setMessages((current) => [...current, { id: data.message.id, role: 'assistant', content: data.message.content }]);
         setSelectedConversationId(data.conversationId);
@@ -223,13 +224,9 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
                 className="rounded-xl border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-200 outline-none"
                 disabled={models.length === 0}
               >
-                {models.length === 0 ? (
-                  <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-                ) : (
-                  models.map((model) => (
-                    <option key={model.id} value={model.id}>{model.displayName}</option>
-                  ))
-                )}
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>{model.displayName}</option>
+                ))}
               </select>
             </div>
 
