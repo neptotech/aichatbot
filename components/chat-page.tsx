@@ -150,7 +150,7 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
       }
 
       const decoder = new TextDecoder();
-      let streamedText = '';
+      let buffer = '';
       let done = false;
 
       while (!done) {
@@ -158,39 +158,91 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
         done = streamDone;
         if (!value) continue;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? '';
 
         for (const line of lines) {
-          if (!line.trim()) continue;
+          const trimmed = line.trim();
+          if (!trimmed) continue;
 
+          let payload: any = null;
           try {
-            const payload = JSON.parse(line);
-            if (payload.event === 'meta' && payload.data?.conversationId) {
-              setSelectedConversationId(payload.data.conversationId);
-              await loadConversations();
-            }
-            if (payload.event === 'text' && typeof payload.data === 'string') {
-              streamedText += payload.data;
-              setMessages((current) =>
-                current.map((message) =>
-                  message.id === assistantId ? { ...message, content: (message.content || '') + payload.data } : message
-                )
-              );
-            }
-            if (payload.event === 'error') {
-              setError(payload.data || 'Something went wrong.');
-              setMessages((current) => current.filter((message) => message.id !== assistantId));
-              done = true;
-            }
+            payload = JSON.parse(trimmed);
           } catch {
-            streamedText += line;
+            const raw = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed;
+            if (!raw) continue;
+            try {
+              payload = JSON.parse(raw);
+            } catch {
+              continue;
+            }
+          }
+
+          if (payload?.event === 'meta' && payload.data?.conversationId) {
+            setSelectedConversationId(payload.data.conversationId);
+            await loadConversations();
+            continue;
+          }
+
+          if (payload?.event === 'text' && typeof payload.data === 'string') {
             setMessages((current) =>
               current.map((message) =>
-                message.id === assistantId ? { ...message, content: (message.content || '') + line } : message
+                message.id === assistantId ? { ...message, content: (message.content || '') + payload.data } : message
+              )
+            );
+            continue;
+          }
+
+          if (payload?.event === 'error') {
+            setError(payload.data || 'Something went wrong.');
+            setMessages((current) => current.filter((message) => message.id !== assistantId));
+            done = true;
+            continue;
+          }
+
+          const textFromApi = payload?.candidates?.[0]?.content?.parts
+            ?.map((part: any) => part.text || '')
+            .join('') || '';
+
+          if (textFromApi) {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId ? { ...message, content: (message.content || '') + textFromApi } : message
               )
             );
           }
+        }
+      }
+
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        try {
+          const payload = JSON.parse(trimmed);
+          if (payload?.event === 'meta' && payload.data?.conversationId) {
+            setSelectedConversationId(payload.data.conversationId);
+            await loadConversations();
+          }
+          if (payload?.event === 'text' && typeof payload.data === 'string') {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId ? { ...message, content: (message.content || '') + payload.data } : message
+              )
+            );
+          }
+          const textFromApi = payload?.candidates?.[0]?.content?.parts
+            ?.map((part: any) => part.text || '')
+            .join('') || '';
+
+          if (textFromApi) {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId ? { ...message, content: (message.content || '') + textFromApi } : message
+              )
+            );
+          }
+        } catch {
+          // Ignore trailing fragments that are not valid JSON yet.
         }
       }
 

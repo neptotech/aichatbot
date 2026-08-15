@@ -118,36 +118,52 @@ export async function POST(req: NextRequest) {
 
           const decoder = new TextDecoder();
           let fullText = '';
+          let buffer = '';
 
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() ?? '';
 
             for (const line of lines) {
               const trimmedLine = line.trim();
               if (!trimmedLine || trimmedLine === '[DONE]') continue;
 
-              if (trimmedLine.startsWith('data:')) {
-                const payload = trimmedLine.slice(5).trim();
-                if (!payload || payload === '[DONE]') continue;
+              const payload = trimmedLine.startsWith('data:') ? trimmedLine.slice(5).trim() : trimmedLine;
+              if (!payload || payload === '[DONE]') continue;
 
-                try {
-                  const parsed = JSON.parse(payload);
-                  const content = parsed?.candidates?.[0]?.content?.parts
-                    ?.map((part: any) => part.text || '')
-                    .join('') || '';
+              try {
+                const parsed = JSON.parse(payload);
+                const content = parsed?.candidates?.[0]?.content?.parts
+                  ?.map((part: any) => part.text || '')
+                  .join('') || '';
 
-                  if (content) {
-                    fullText += content;
-                    controller.enqueue(encoder.encode(JSON.stringify({ event: 'text', data: content }) + '\n'));
-                  }
-                } catch {
-                  // ignore malformed chunk fragments
+                if (content) {
+                  fullText += content;
+                  controller.enqueue(encoder.encode(JSON.stringify({ event: 'text', data: content }) + '\n'));
                 }
+              } catch {
+                // Ignore incomplete fragments until the next chunk arrives.
               }
+            }
+          }
+
+          if (buffer.trim()) {
+            try {
+              const parsed = JSON.parse(buffer.trim());
+              const content = parsed?.candidates?.[0]?.content?.parts
+                ?.map((part: any) => part.text || '')
+                .join('') || '';
+
+              if (content) {
+                fullText += content;
+                controller.enqueue(encoder.encode(JSON.stringify({ event: 'text', data: content }) + '\n'));
+              }
+            } catch {
+              // Ignore malformed trailing fragments.
             }
           }
 
