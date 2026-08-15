@@ -123,133 +123,175 @@ export default function ChatPage({ user }: { user: { id?: string; name?: string 
   }
 
   return (
-    <main className="flex min-h-screen bg-slate-950 text-slate-100">
-      <aside className="hidden w-80 border-r border-slate-800 bg-slate-900/80 p-4 lg:flex lg:flex-col">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-emerald-400">ChatFlow</p>
-            <h2 className="mt-2 text-2xl font-semibold">Chats</h2>
+    <main className="flex min-h-screen bg-[#f5f1ea] text-stone-800">
+      <aside className="hidden w-72 border-r border-[#e8dfd6] bg-[#f1efe9] p-4 lg:flex lg:flex-col">
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-stone-500">OpenAI</div>
           </div>
-          <button
-            onClick={startNewConversation}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:bg-slate-700"
-          >
-            New
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm text-stone-600 shadow-sm ring-1 ring-stone-200">⌕</button>
+            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm text-stone-600 shadow-sm ring-1 ring-stone-200">＋</button>
+          </div>
         </div>
 
-        <div className="space-y-2 overflow-y-auto">
-          {conversations.map((conversation) => (
+        <button
+          onClick={startNewConversation}
+          className="flex w-full items-center gap-2 rounded-2xl bg-[#e7e0d8] px-3 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-[#ddd3c8]"
+        >
+          <span className="flex h-5 w-5 items-center justify-center rounded-md border border-stone-400 text-xs">✎</span>
+          New chat
+        </button>
+
+        <nav className="mt-5 space-y-2 text-sm text-stone-600">
+          {[
+            'Images',
+            'Library',
+            'Gains',
+            'Pacts',
+            'More'
+          ].map((item) => (
             <button
-              key={conversation.id}
-              onClick={() => loadMessages(conversation.id)}
-              className={`w-full rounded-2xl border p-3 text-left transition ${
-                selectedConversationId === conversation.id
-                  ? 'border-emerald-500 bg-emerald-500/10'
-                  : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
-              }`}
+              key={item}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-white/60"
             >
-              <div className="truncate text-sm font-medium text-white">{conversation.title}</div>
-              <div className="mt-1 text-xs text-slate-400">{new Date(conversation.createdAt).toLocaleDateString()}</div>
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-stone-300 text-[10px] text-stone-500">
+                {item[0]}
+              </span>
+              {item}
             </button>
           ))}
+        </nav>
+
+        <div className="mt-8">
+          <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-500">Recents</div>
+          <div className="space-y-2 text-sm text-stone-600">
+            {['Discord server member limit', 'Windows AI Components Update', 'Phi Silica Use Cases', 'AI Image Search Setup', 'Gmail Email Summary'].map((item) => (
+              <div key={item} className="truncate px-2 py-1.5 text-stone-600">{item}</div>
+            ))}
+          </div>
         </div>
 
-        <div className="mt-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3">
+        <div className="mt-auto rounded-2xl border border-[#e7dfd6] bg-[#f5f1ea] p-3">
           <div className="flex items-center gap-3">
-            <img src={user.image || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name || user.email || 'User')} alt="avatar" className="h-10 w-10 rounded-full" />
-            <div className="flex-1 min-w-0">
-              <div className="truncate text-sm font-medium text-white">{user.name || user.email}</div>
-              <div className="text-xs text-slate-400">{session?.user?.email || 'Google account'}</div>
+            <img
+              src={user.image || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name || user.email || 'User')}
+              alt="avatar"
+              className="h-8 w-8 rounded-full object-cover"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-stone-800">{user.name || user.email}</div>
+              <div className="text-[11px] text-stone-500">{session?.user?.email || 'Google account'}</div>
             </div>
           </div>
-          <button onClick={() => signOut({ callbackUrl: '/login' })} className="mt-4 w-full rounded-xl bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700">
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="mt-3 w-full rounded-xl bg-[#e7e0d8] px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-[#ddd3c8]"
+          >
             Sign out
           </button>
         </div>
       </aside>
 
       <section className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-800 bg-slate-900/60 px-4 py-4 backdrop-blur lg:px-8">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-emerald-400">AI assistant</p>
-            <h1 className="mt-2 text-xl font-semibold">Chat</h1>
+        <header className="flex items-center justify-between px-5 py-4">
+          <div className="flex items-center gap-3">
+            <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-sm text-stone-700 shadow-sm ring-1 ring-stone-200 lg:hidden">
+              ☰
+            </button>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-stone-500">ChatGPT</div>
           </div>
-          <div className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
-            Google Gemini
+
+          <div className="flex items-center gap-2">
+            <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-stone-700 shadow-sm ring-1 ring-stone-200">
+              ⎘
+            </button>
+            <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-stone-700 shadow-sm ring-1 ring-stone-200">
+              ◌
+            </button>
           </div>
         </header>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6 lg:px-8">
-          {messages.length === 0 ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="max-w-xl rounded-3xl border border-dashed border-slate-700 bg-slate-900/50 p-8 text-center">
-                <h2 className="text-2xl font-semibold text-white">Start a new conversation</h2>
-                <p className="mt-3 text-slate-400">Ask a question and the assistant will answer using your recent conversation context.</p>
-              </div>
+        <div className="flex flex-1 flex-col px-4 pb-8 pt-2">
+          <div className="flex flex-1 items-center justify-center">
+            <div className="w-full max-w-4xl">
+              {messages.length === 0 ? (
+                <div className="flex min-h-[280px] items-center justify-center">
+                  <div className="text-center text-[28px] font-medium tracking-[-0.04em] text-stone-700">
+                    What’s on your mind today?
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 overflow-y-auto px-4 py-6">
+                  {messages.map((message) => (
+                    <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-3xl rounded-2xl px-4 py-3 ${message.role === 'user' ? 'bg-[#2f2c2b] text-white' : 'bg-white text-stone-800 ring-1 ring-stone-200'}`}>
+                        <div className="whitespace-pre-wrap text-sm leading-7">{message.content}</div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div className="rounded-2xl bg-white px-4 py-3 text-sm text-stone-600 ring-1 ring-stone-200">
+                        Thinking...
+                      </div>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                      {error}
+                    </div>
+                  )}
+                  <div ref={bottomRef} />
+                </div>
+              )}
             </div>
-          ) : (
-            messages.map((message) => (
-              <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-3xl rounded-2xl px-4 py-3 ${message.role === 'user' ? 'bg-emerald-500 text-white' : 'border border-slate-700 bg-slate-900 text-slate-100'}`}>
-                  <div className="whitespace-pre-wrap text-sm leading-7">{message.content}</div>
+          </div>
+
+          <div className="w-full pb-2">
+            <div className="mx-auto w-full max-w-4xl rounded-[28px] border border-[#d9d1c7] bg-[#e8e1d8] p-3 shadow-[0_10px_30px_rgba(109,97,87,0.08)]">
+              <div className="flex items-end gap-3">
+                <button className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-lg text-stone-700 shadow-sm ring-1 ring-stone-200">
+                  +
+                </button>
+
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  rows={1}
+                  placeholder="Ask anything"
+                  className="max-h-40 min-h-[44px] flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-base text-stone-800 placeholder:text-stone-500 outline-none"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                />
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="rounded-full border border-[#d3cabf] bg-[#f4efe9] px-2.5 py-2 text-xs font-medium text-stone-700 outline-none shadow-sm"
+                  >
+                    {models.map((model) => (
+                      <option key={model.id} value={model.id}>{model.displayName}</option>
+                    ))}
+                  </select>
+                  <button
+                    disabled={isLoading || !input.trim()}
+                    onClick={handleSend}
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2d2a29] text-lg text-white transition hover:bg-[#1d1b1a] disabled:cursor-not-allowed disabled:bg-stone-300"
+                    aria-label="Send prompt"
+                  >
+                    ➜
+                  </button>
                 </div>
               </div>
-            ))
-          )}
-
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-300">
-                Thinking...
-              </div>
             </div>
-          )}
-
-          {error && (
-            <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-              {error}
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        <div className="border-t border-slate-800 bg-slate-900/70 p-4 lg:px-8">
-          <div className="mx-auto flex max-w-5xl items-end gap-3 rounded-2xl border border-slate-700 bg-slate-950 p-3">
-            <div className="flex items-center gap-2 self-end pb-3">
-              <label className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Model</label>
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="rounded-xl border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-200 outline-none"
-                disabled={models.length === 0}
-              >
-                {models.map((model) => (
-                  <option key={model.id} value={model.id}>{model.displayName}</option>
-                ))}
-              </select>
-            </div>
-
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              rows={1}
-              placeholder="Message ChatFlow AI..."
-              className="max-h-40 min-h-[48px] flex-1 resize-none border-0 bg-transparent px-2 py-3 text-base text-white placeholder:text-slate-500 outline-none"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-            />
-            <button
-              disabled={isLoading || !input.trim()}
-              onClick={handleSend}
-              className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-            >
-              Send
-            </button>
           </div>
         </div>
       </section>
